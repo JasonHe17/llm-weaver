@@ -173,6 +173,116 @@ async def get_usage_summary(
     )
 
 
+# 添加 /stats 端点，与 /summary 相同但参数不同
+@router.get("/stats", response_model=ResponseModel[UsageSummaryResponse])
+async def get_usage_stats(
+    days: int = Query(7, ge=1, le=365, description="统计天数"),
+    current_user: UserModel = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取用量统计（简化版，按天数统计）.
+    
+    Args:
+        days: 统计天数（默认7天）
+        current_user: 当前用户
+        db: 数据库会话
+        
+    Returns:
+        用量统计数据
+    """
+    from datetime import datetime, timedelta
+    
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+    
+    # 查询总用量
+    result = await db.execute(
+        select(
+            func.count().label("requests"),
+            func.coalesce(func.sum(RequestLog.tokens_input), 0).label("tokens_input"),
+            func.coalesce(func.sum(RequestLog.tokens_output), 0).label("tokens_output"),
+            func.coalesce(func.sum(RequestLog.cost), 0).label("cost"),
+        )
+        .where(
+            RequestLog.user_id == current_user.id,
+            RequestLog.created_at >= start_date,
+            RequestLog.created_at <= end_date,
+        )
+    )
+    row = result.one()
+    
+    # 按模型统计（适配前端格式）
+    model_result = await db.execute(
+        select(
+            RequestLog.model,
+            func.count().label("count"),
+        )
+        .where(
+            RequestLog.user_id == current_user.id,
+            RequestLog.created_at >= start_date,
+            RequestLog.created_at <= end_date,
+        )
+        .group_by(RequestLog.model)
+    )
+    
+    requests_by_model = [
+        {"model": m.model, "count": m.count}
+        for m in model_result.all()
+    ]
+    
+    # 按天统计（适配前端格式）
+    daily_result = await db.execute(
+        select(
+            func.date(RequestLog.created_at).label("date"),
+            func.count().label("count"),
+        )
+        .where(
+            RequestLog.user_id == current_user.id,
+            RequestLog.created_at >= start_date,
+            RequestLog.created_at <= end_date,
+        )
+        .group_by(func.date(RequestLog.created_at))
+        .order_by(func.date(RequestLog.created_at))
+    )
+    
+    requests_by_day = [
+        {"date": str(d.date), "count": d.count}
+        for d in daily_result.all()
+    ]
+    
+    # 按模型统计费用
+    cost_result = await db.execute(
+        select(
+            RequestLog.model,
+            func.coalesce(func.sum(RequestLog.cost), 0).label("cost"),
+        )
+        .where(
+            RequestLog.user_id == current_user.id,
+            RequestLog.created_at >= start_date,
+            RequestLog.created_at <= end_date,
+        )
+        .group_by(RequestLog.model)
+    )
+    
+    cost_by_model = [
+        {"model": m.model, "cost": float(m.cost)}
+        for m in cost_result.all()
+    ]
+    
+    return ResponseModel(
+        code=200,
+        message="success",
+        data={
+            "total_requests": row.requests or 0,
+            "total_tokens": (row.tokens_input or 0) + (row.tokens_output or 0),
+            "total_cost": float(row.cost or 0),
+            "requests_by_model": requests_by_model,
+            "cost_by_model": cost_by_model,
+            "requests_by_day": requests_by_day,
+        },
+    )
+
+
 @router.get("/logs", response_model=ResponseModel[PaginatedResponse[RequestLogItem]])
 async def get_request_logs(
     page: int = Query(1, ge=1),
