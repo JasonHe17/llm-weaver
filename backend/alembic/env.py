@@ -1,0 +1,76 @@
+"""
+Alembic 迁移环境配置
+"""
+
+import asyncio
+from logging.config import fileConfig
+
+from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import async_engine_from_config
+
+from alembic import context
+
+from app.core.config import settings
+from app.db.base import Base
+from app.db.models import *  # 导入所有模型
+
+# 读取配置
+c = context.config
+
+# 从配置文件设置日志
+if c.config_file_name is not None:
+    fileConfig(c.config_file_name)
+
+# 设置目标元数据
+target_metadata = Base.metadata
+
+# 从环境变量获取数据库URL
+c.set_main_option("sqlalchemy.url", settings.DATABASE_ASYNC_URL)
+
+
+def run_migrations_offline() -> None:
+    """以离线模式运行迁移."""
+    url = c.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def do_run_migrations(connection: Connection) -> None:
+    """执行迁移."""
+    context.configure(connection=connection, target_metadata=target_metadata)
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    """异步运行迁移."""
+    connectable = async_engine_from_config(
+        c.get_section(c.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
+    """以在线模式运行迁移."""
+    asyncio.run(run_async_migrations())
+
+
+if c.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()

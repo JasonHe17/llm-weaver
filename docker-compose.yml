@@ -1,0 +1,200 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: llm-weaver-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-llm_weaver}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-llm_weaver_secret}
+      POSTGRES_DB: ${DB_NAME:-llm_weaver}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-llm_weaver} -d ${DB_NAME:-llm_weaver}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - llm-weaver-network
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: llm-weaver-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory ${REDIS_MAXMEMORY:-256mb} --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - llm-weaver-network
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: llm-weaver-backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-llm_weaver}:${DB_PASSWORD:-llm_weaver_secret}@postgres:5432/${DB_NAME:-llm_weaver}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8080}
+    volumes:
+      - ./backend:/app
+      - backend_logs:/app/logs
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - llm-weaver-network
+
+  # 前端服务 (Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: llm-weaver-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - backend
+    networks:
+      - llm-weaver-network
+
+  # Nginx 反向代理 (可选，用于生产环境统一入口)
+  nginx:
+    image: nginx:alpine
+    container_name: llm-weaver-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - llm-weaver-network
+    profiles:
+      - production
+
+  # Celery Worker (异步任务)
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: llm-weaver-celery
+    restart: unless-stopped
+    command: celery -A app.core.celery worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-llm_weaver}:${DB_PASSWORD:-llm_weaver_secret}@postgres:5432/${DB_NAME:-llm_weaver}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - llm-weaver-network
+
+  # Celery Beat (定时任务)
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: llm-weaver-beat
+    restart: unless-stopped
+    command: celery -A app.core.celery beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-llm_weaver}:${DB_PASSWORD:-llm_weaver_secret}@postgres:5432/${DB_NAME:-llm_weaver}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+    volumes:
+      - ./backend:/app
+      - celery_beat:/app/celerybeat
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - llm-weaver-network
+
+  # 可选: Prometheus 监控
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: llm-weaver-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    profiles:
+      - monitoring
+    networks:
+      - llm-weaver-network
+
+  # 可选: Grafana 可视化
+  grafana:
+    image: grafana/grafana:latest
+    container_name: llm-weaver-grafana
+    restart: unless-stopped
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    profiles:
+      - monitoring
+    networks:
+      - llm-weaver-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_logs:
+  celery_beat:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  llm-weaver-network:
+    driver: bridge
