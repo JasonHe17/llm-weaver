@@ -5,6 +5,7 @@ API路由聚合
 from fastapi import APIRouter
 
 from app.api.v1 import auth, api_keys, channels, models, usage, health
+from app.api.v1 import openai_compat
 
 # 创建主路由
 api_router = APIRouter()
@@ -15,3 +16,9 @@ api_router.include_router(api_keys.router, prefix="/api-keys", tags=["api-keys"]
 api_router.include_router(channels.router, prefix="/channels", tags=["channels"])
 api_router.include_router(models.router, prefix="/models", tags=["models"])
 api_router.include_router(usage.router, prefix="/usage", tags=["usage"])
+
+# OpenAI 兼容接口（无前缀，直接挂载在 /v1 下）
+openai_router = APIRouter()
+openai_router.include_router(openai_compat.router, tags=["openai-compatible"])
+
+__all__ = ["api_router", "openai_router"]

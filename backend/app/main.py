@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.router import api_router
+from app.api.router import api_router, openai_router
 from app.api.v1.health import router as health_router
 from app.core.config import settings
 from app.core.exceptions import BusinessError
@@ -105,8 +105,14 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 # 注册路由
+# 健康检查
 app.include_router(health_router, prefix="/api/v1", tags=["health"])
+
+# 原生API路由
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# OpenAI兼容接口（挂载在 /v1 路径下）
+app.include_router(openai_router, prefix="/v1")
 
 
 @app.get("/")
@@ -116,7 +122,14 @@ async def root():
         "name": settings.PROJECT_NAME,
         "version": settings.VERSION,
         "docs": "/api/v1/docs",
+        "openapi": "/api/v1/openapi.json",
     }
+
+
+@app.get("/health")
+async def simple_health():
+    """简单健康检查端点."""
+    return {"status": "ok", "service": settings.PROJECT_NAME}
 
 
 if __name__ == "__main__":
