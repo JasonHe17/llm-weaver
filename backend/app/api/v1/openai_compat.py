@@ -332,6 +332,11 @@ async def chat_completions(
     if api_key.allowed_models and request.model not in api_key.allowed_models:
         raise ValidationError(f"API Key无权访问模型: {request.model}")
     
+    # 检查预算限制
+    if api_key.budget_limit and api_key.budget_limit > 0:
+        if float(api_key.budget_used) >= float(api_key.budget_limit):
+            raise RateLimitError(f"API Key预算已用尽: ${float(api_key.budget_used):.4f} / ${float(api_key.budget_limit):.4f}")
+    
     # 选择渠道（使用智能负载均衡，传递用户ID和策略）
     # 支持通过请求头 X-LB-Strategy 指定策略
     channel, mapping = await select_channel_for_model(
