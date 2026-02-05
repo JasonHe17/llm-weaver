@@ -21,6 +21,26 @@ const channelTypes = [
   { value: 'gemini', label: 'Google Gemini' },
 ]
 
+// 模型选项
+const modelOptions = [
+  { value: 'gpt-4', label: 'GPT-4' },
+  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+  { value: 'claude-3-opus', label: 'Claude 3 Opus' },
+  { value: 'claude-3-sonnet', label: 'Claude 3 Sonnet' },
+  { value: 'claude-3-haiku', label: 'Claude 3 Haiku' },
+  { value: 'gemini-pro', label: 'Gemini Pro' },
+  { value: 'gemini-ultra', label: 'Gemini Ultra' },
+]
+
+// 测试对话框
+const testDialogVisible = ref(false)
+const testResult = ref<{
+  status: string
+  latency_ms: number
+  message: string
+} | null>(null)
+
 const form = ref<CreateChannelRequest>({
   name: '',
   type: 'openai',
@@ -105,18 +125,42 @@ const handleDelete = async (row: Channel) => {
   }
 }
 
+const handleToggleStatus = async (row: Channel) => {
+  try {
+    const newStatus = row.status === 'active' ? 'inactive' : 'active'
+    await channelsApi.updateChannel(row.id, { status: newStatus })
+    ElMessage.success(`渠道已${newStatus === 'active' ? '启用' : '禁用'}`)
+    fetchChannels()
+  } catch (error) {
+    console.error('Failed to toggle status:', error)
+    ElMessage.error('操作失败')
+  }
+}
+
 const handleTest = async (row: Channel) => {
   try {
     const response = await channelsApi.testChannel(row.id)
-    const result = response.data.data
-    if (result.status === 'success') {
-      ElMessage.success(`连接成功，延迟: ${result.latency_ms}ms`)
-    } else {
-      ElMessage.error(result.message)
-    }
+    testResult.value = response.data.data
+    testDialogVisible.value = true
+    
+    // 刷新列表以更新状态
+    fetchChannels()
   } catch (error) {
     console.error('Failed to test channel:', error)
+    ElMessage.error('测试失败')
   }
+}
+
+// 模型映射管理
+const addModelMapping = () => {
+  form.value.models.push({
+    model_id: '',
+    mapped_model: ''
+  })
+}
+
+const removeModelMapping = (index: number) => {
+  form.value.models.splice(index, 1)
 }
 
 onMounted(() => {
@@ -156,11 +200,29 @@ onMounted(() => {
             {{ new Date(row.created_at).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleEdit(row)">编辑</el-button>
+            <el-button 
+              :type="row.status === 'active' ? 'warning' : 'success'" 
+              link 
+              @click="handleToggleStatus(row)"
+            >
+              {{ row.status === 'active' ? '禁用' : '启用' }}
+            </el-button>
             <el-button type="success" link @click="handleTest(row)">测试</el-button>
-            <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
+            <el-dropdown trigger="click">
+              <el-button type="primary" link>
+                更多<el-icon class="el-icon--right"><arrow-down /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item @click="handleDelete(row)" style="color: #f56c6c;">
+                    删除
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -206,16 +268,75 @@ onMounted(() => {
         <el-form-item label="权重">
           <el-input-number v-model="form.weight" :min="1" :max="1000" />
         </el-form-item>
-        <el-form-item label="优先级">
-          <el-input-number v-model="form.priority" :min="0" :max="100" />
-        </el-form-item>
-      </el-form>
-
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
-      </template>
-    </el-dialog>
+         <el-form-item label="优先级">
+           <el-input-number v-model="form.priority" :min="0" :max="100" />
+           <span class="form-hint">数值越大优先级越高</span>
+         </el-form-item>
+ 
+         <el-divider>模型映射</el-divider>
+         
+         <div v-for="(mapping, index) in form.models" :key="index" class="model-mapping-row">
+           <el-row :gutter="10">
+             <el-col :span="10">
+               <el-select v-model="mapping.model_id" placeholder="选择模型" style="width: 100%">
+                 <el-option
+                   v-for="model in modelOptions"
+                   :key="model.value"
+                   :label="model.label"
+                   :value="model.value"
+                 />
+               </el-select>
+             </el-col>
+             <el-col :span="10">
+               <el-input v-model="mapping.mapped_model" placeholder="映射名称（可选）" />
+             </el-col>
+             <el-col :span="4">
+               <el-button type="danger" circle @click="removeModelMapping(index)">
+                 <el-icon><Delete /></el-icon>
+               </el-button>
+             </el-col>
+           </el-row>
+         </div>
+         
+         <el-button type="primary" plain @click="addModelMapping" style="margin-top: 10px;">
+           <el-icon><Plus /></el-icon>
+           添加模型映射
+         </el-button>
+       </el-form>
+ 
+       <template #footer>
+         <el-button @click="dialogVisible = false">取消</el-button>
+         <el-button type="primary" @click="handleSubmit">确定</el-button>
+       </template>
+     </el-dialog>
+ 
+     <!-- 测试结果对话框 -->
+     <el-dialog
+       v-model="testDialogVisible"
+       title="渠道测试结果"
+       width="400px"
+     >
+       <div v-if="testResult" class="test-result">
+         <div class="test-status">
+           <el-icon :size="48" :color="testResult.status === 'success' ? '#67c23a' : '#f56c6c'">
+             <CircleCheck v-if="testResult.status === 'success'" />
+             <CircleClose v-else />
+           </el-icon>
+           <h3>{{ testResult.status === 'success' ? '连接成功' : '连接失败' }}</h3>
+         </div>
+         <el-descriptions :column="1" border>
+           <el-descriptions-item label="延迟">
+             {{ testResult.latency_ms }}ms
+           </el-descriptions-item>
+           <el-descriptions-item label="消息">
+             {{ testResult.message }}
+           </el-descriptions-item>
+         </el-descriptions>
+       </div>
+       <template #footer>
+         <el-button @click="testDialogVisible = false">关闭</el-button>
+       </template>
+     </el-dialog>
   </div>
 </template>
 
@@ -240,5 +361,33 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+.form-hint {
+  margin-left: 10px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.model-mapping-row {
+  margin-bottom: 10px;
+}
+
+.test-result {
+  text-align: center;
+}
+
+.test-status {
+  margin-bottom: 20px;
+}
+
+.test-status h3 {
+  margin: 10px 0;
+  color: #303133;
+}
+
+:deep(.el-dropdown) {
+  vertical-align: middle;
+  margin-left: 8px;
 }
 </style>
