@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Unit Test Coverage**
+  - Core module tests: `test_config.py`, `test_exceptions.py`, `test_security.py`
+  - Schema validation tests: `test_common.py`, `test_user.py`, `test_auth.py`
+  - Service layer tests: `test_model_provider.py`
+  - Total: 7 test files, 150+ test cases covering config, exceptions, schemas, and services
+  - All tests verified and passing
+
 ### Planned
 - Team/organization features
 - Advanced monitoring and alerting

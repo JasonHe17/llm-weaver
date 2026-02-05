@@ -268,8 +268,15 @@ alembic history
 tests/
 ├── conftest.py          # pytest配置
 ├── unit/                # 单元测试
-│   ├── test_services/
-│   └── test_utils/
+│   ├── test_config.py           # 配置模块测试
+│   ├── test_exceptions.py       # 异常类测试
+│   ├── test_security.py         # 安全功能测试
+│   ├── schemas/
+│   │   ├── test_common.py       # 通用响应模型测试
+│   │   ├── test_user.py         # 用户模型测试
+│   │   └── test_auth.py         # 认证模型测试
+│   └── services/
+│       └── test_model_provider.py  # 模型提供商服务测试
 ├── integration/         # 集成测试
 │   └── test_api/
 └── e2e/                 # 端到端测试
