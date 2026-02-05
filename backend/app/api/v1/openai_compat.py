@@ -233,6 +233,7 @@ async def log_request(
     cost: float,
     latency_ms: int,
     error_message: Optional[str] = None,
+    request_id: Optional[str] = None,
 ):
     """记录请求日志.
     
@@ -248,8 +249,10 @@ async def log_request(
         cost: 费用
         latency_ms: 延迟毫秒
         error_message: 错误信息
+        request_id: 请求ID（可选，用于追踪）
     """
     log = RequestLog(
+        request_id=request_id or f"req-{uuid.uuid4().hex[:16]}",
         api_key_id=api_key_id,
         user_id=user_id,
         channel_id=channel_id,
@@ -327,6 +330,7 @@ async def chat_completions(
         聊天完成响应（流式或非流式）
     """
     start_time = time.time()
+    request_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
     
     # 检查API Key是否允许使用该模型
     if api_key.allowed_models and request.model not in api_key.allowed_models:
@@ -364,6 +368,7 @@ async def chat_completions(
                 input_tokens=input_tokens,
                 start_time=start_time,
                 db=db,
+                request_id=request_id,
             ),
             media_type="text/event-stream",
         )
@@ -377,6 +382,7 @@ async def chat_completions(
             input_tokens=input_tokens,
             start_time=start_time,
             db=db,
+            request_id=request_id,
         )
 
 
@@ -388,6 +394,7 @@ async def non_stream_chat_completion(
     input_tokens: int,
     start_time: float,
     db: AsyncSession,
+    request_id: str,
 ) -> ChatCompletionResponse:
     """非流式聊天完成.
     
@@ -399,6 +406,7 @@ async def non_stream_chat_completion(
         input_tokens: 输入token数
         start_time: 开始时间
         db: 数据库会话
+        request_id: 请求ID
         
     Returns:
         聊天完成响应
@@ -598,6 +606,7 @@ async def non_stream_chat_completion(
         # 记录日志
         await log_request(
             db=db,
+            request_id=request_id,
             api_key_id=api_key.id,
             user_id=api_key.user_id,
             channel_id=channel.id,
@@ -659,6 +668,7 @@ async def non_stream_chat_completion(
         # 记录错误日志
         await log_request(
             db=db,
+            request_id=request_id,
             api_key_id=api_key.id,
             user_id=api_key.user_id,
             channel_id=channel.id,
@@ -689,6 +699,7 @@ async def non_stream_chat_completion(
         # 记录错误日志
         await log_request(
             db=db,
+            request_id=request_id,
             api_key_id=api_key.id,
             user_id=api_key.user_id,
             channel_id=channel.id,
@@ -723,6 +734,7 @@ async def stream_chat_completion(
     input_tokens: int,
     start_time: float,
     db: AsyncSession,
+    request_id: str,
 ) -> AsyncGenerator[str, None]:
     """流式聊天完成.
     
@@ -734,12 +746,13 @@ async def stream_chat_completion(
         input_tokens: 输入token数
         start_time: 开始时间
         db: 数据库会话
+        request_id: 请求ID
         
     Yields:
         SSE格式的数据
     """
     config = channel.config
-    completion_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
+    completion_id = request_id
     created = int(datetime.now(timezone.utc).timestamp())
     
     accumulated_content = ""
@@ -824,6 +837,7 @@ async def stream_chat_completion(
         # 记录日志
         await log_request(
             db=db,
+            request_id=request_id,
             api_key_id=api_key.id,
             user_id=api_key.user_id,
             channel_id=channel.id,
@@ -853,6 +867,7 @@ async def stream_chat_completion(
         # 记录错误日志
         await log_request(
             db=db,
+            request_id=request_id,
             api_key_id=api_key.id,
             user_id=api_key.user_id,
             channel_id=channel.id,
