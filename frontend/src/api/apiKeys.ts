@@ -7,6 +7,14 @@ import type {
   CreateAPIKeyRequest 
 } from '@/types'
 
+export interface UpdateAPIKeyRequest {
+  name?: string
+  budget_limit?: number
+  rate_limit?: number
+  allowed_models?: string[]
+  status?: 'active' | 'inactive'
+}
+
 export const apiKeysApi = {
   getApiKeys(params?: { page?: number; page_size?: number }): Promise<AxiosResponse<ApiResponse<PaginatedResponse<APIKey>>>> {
     return request.get('/api-keys', { params })
@@ -16,6 +24,10 @@ export const apiKeysApi = {
     return request.post('/api-keys', data)
   },
 
+  updateApiKey(id: number, data: UpdateAPIKeyRequest): Promise<AxiosResponse<ApiResponse<APIKey>>> {
+    return request.put(`/api-keys/${id}`, data)
+  },
+
   deleteApiKey(id: number): Promise<AxiosResponse<ApiResponse<void>>> {
     return request.delete(`/api-keys/${id}`)
   },
@@ -23,4 +35,5 @@ export const apiKeysApi = {
   regenerateApiKey(id: number): Promise<AxiosResponse<ApiResponse<APIKey>>> {
     return request.post(`/api-keys/${id}/regenerate`)
   }
+}
 }

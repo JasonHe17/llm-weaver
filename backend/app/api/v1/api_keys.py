@@ -335,3 +335,59 @@ async def revoke_api_key(
         message="API Key已撤销",
         data=api_key_to_response(api_key),
     )
+
+
+@router.post("/{key_id}/regenerate", response_model=ResponseModel[APIKeyCreateResponse])
+async def regenerate_api_key(
+    key_id: int,
+    current_user: UserModel = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """重新生成API Key.
+    
+    生成新的API Key，旧Key立即失效
+    
+    Args:
+        key_id: API Key ID
+        current_user: 当前用户
+        db: 数据库会话
+        
+    Returns:
+        包含新API Key的响应（仅一次）
+        
+    Raises:
+        NotFoundError: API Key不存在
+    """
+    result = await db.execute(
+        select(APIKey).where(
+            APIKey.id == key_id,
+            APIKey.user_id == current_user.id,
+        )
+    )
+    api_key = result.scalar_one_or_none()
+    
+    if not api_key:
+        raise NotFoundError("API Key不存在")
+    
+    # 生成新的API Key
+    raw_key = generate_api_key()
+    key_hash = hash_api_key(raw_key)
+    
+    # 更新密钥哈希
+    api_key.key_hash = key_hash
+    api_key.status = "active"
+    await db.commit()
+    await db.refresh(api_key)
+    
+    logger.info(f"API Key regenerated: {key_id} by user {current_user.id}")
+    
+    return ResponseModel(
+        code=200,
+        message="API Key重新生成成功",
+        data=APIKeyCreateResponse(
+            id=api_key.id,
+            key=raw_key,  # 仅重新生成时返回完整Key
+            name=api_key.name,
+            created_at=api_key.created_at,
+        ),
+    )
