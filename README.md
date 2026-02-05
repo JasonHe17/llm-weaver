@@ -194,7 +194,135 @@ llm-weaver/
 | 通义千问 | `qwen` | ✅ 已支持 |
 | 自定义 | `custom` | ✅ 已支持 |
 
-## 📖 使用文档
+## 📖 API 文档
+
+### Swagger UI
+
+启动服务后访问：
+- **Swagger UI**: http://localhost:8000/api/v1/docs
+- **ReDoc**: http://localhost:8000/api/v1/redoc
+- **OpenAPI Schema**: http://localhost:8000/api/v1/openapi.json
+
+### 快速使用示例
+
+#### 1. 用户登录
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "password": "admin123"
+  }'
+```
+
+**响应示例：**
+```json
+{
+  "code": 200,
+  "message": "登录成功",
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "token_type": "bearer",
+    "expires_in": 604800,
+    "user": {
+      "id": 1,
+      "username": "admin",
+      "email": "admin@example.com",
+      "role": "admin"
+    }
+  }
+}
+```
+
+#### 2. 创建 API Key
+
+```bash
+curl -X POST http://localhost:8000/api/v1/api-keys \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Production Key",
+    "budget_limit": 100.00,
+    "rate_limit": 60
+  }'
+```
+
+**响应示例：**
+```json
+{
+  "code": 201,
+  "message": "API Key创建成功",
+  "data": {
+    "id": 1,
+    "key": "sk-llmweaver-abc123xyz789...",
+    "name": "My Production Key",
+    "created_at": "2024-01-01T00:00:00"
+  }
+}
+```
+
+**⚠️ 注意：API Key 只在创建时返回一次，请妥善保存！**
+
+#### 3. 创建渠道
+
+```bash
+curl -X POST http://localhost:8000/api/v1/channels \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "OpenAI Production",
+    "type": "openai",
+    "config": {
+      "api_key": "sk-openai-your-key-here",
+      "api_base": "https://api.openai.com"
+    },
+    "models": [
+      {"model_id": "gpt-4", "mapped_model": "gpt-4"},
+      {"model_id": "gpt-3.5-turbo", "mapped_model": "gpt-3.5-turbo"}
+    ]
+  }'
+```
+
+#### 4. 调用 OpenAI 兼容接口
+
+```bash
+# 查看可用模型
+curl http://localhost:8000/v1/models \
+  -H "Authorization: Bearer <api_key>"
+
+# 聊天完成
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Authorization: Bearer <api_key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [
+      {"role": "user", "content": "你好，请介绍一下自己"}
+    ],
+    "temperature": 0.7
+  }'
+```
+
+**Python 示例：**
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-llmweaver-your-key",
+    base_url="http://localhost:8000/v1"
+)
+
+response = client.chat.completions.create(
+    model="gpt-3.5-turbo",
+    messages=[
+        {"role": "user", "content": "你好！"}
+    ]
+)
+print(response.choices[0].message.content)
+```
+
+### 详细文档
 
 - [架构设计文档](docs/ARCHITECTURE.md)
 - [数据库设计文档](docs/DATABASE_DESIGN.md)

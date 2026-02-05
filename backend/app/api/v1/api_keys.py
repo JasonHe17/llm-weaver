@@ -53,25 +53,61 @@ def api_key_to_response(key: APIKey) -> APIKeyResponse:
     )
 
 
-@router.get("", response_model=ResponseModel[APIKeyListResponse])
+@router.get(
+    "",
+    response_model=ResponseModel[APIKeyListResponse],
+    summary="获取API Key列表",
+    description="获取当前用户的所有API Keys，支持分页和状态筛选。",
+    responses={
+        200: {
+            "description": "API Key列表",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 200,
+                        "message": "success",
+                        "data": {
+                            "items": [
+                                {
+                                    "id": 1,
+                                    "name": "Production Key",
+                                    "key_mask": "sk-llmweaver-****...",
+                                    "status": "active",
+                                    "budget_limit": 100.0,
+                                    "budget_used": 15.50,
+                                    "rate_limit": 60,
+                                    "created_at": "2024-01-01T00:00:00"
+                                }
+                            ],
+                            "total": 1,
+                            "page": 1,
+                            "page_size": 20,
+                            "total_pages": 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
 async def list_api_keys(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
-    status: Optional[str] = Query(None, description="状态筛选"),
+    status: Optional[str] = Query(None, description="状态筛选 (active/inactive/revoked)"),
     current_user: UserModel = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """获取API Key列表.
-    
+
     只返回当前用户创建的API Keys
-    
+
     Args:
         page: 页码
         page_size: 每页数量
         status: 状态筛选
         current_user: 当前用户
         db: 数据库会话
-        
+
     Returns:
         API Key列表（分页）
     """

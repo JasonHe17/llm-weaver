@@ -163,6 +163,10 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
         "claude-3-opus-20240229": {"input": 0.015, "output": 0.075},
         "claude-3-sonnet-20240229": {"input": 0.003, "output": 0.015},
         "claude-3-haiku-20240307": {"input": 0.00025, "output": 0.00125},
+        # Google Gemini
+        "gemini-pro": {"input": 0.0005, "output": 0.0015},
+        "gemini-pro-vision": {"input": 0.0005, "output": 0.0015},
+        "gemini-ultra": {"input": 0.001, "output": 0.003},
     }
     
     model_pricing = pricing.get(model, pricing.get("gpt-3.5-turbo"))
@@ -506,6 +510,68 @@ async def non_stream_chat_completion(
                     }
                 }
             
+            elif channel.type == "gemini":
+                # Google Gemini 适配
+                api_key = config["api_key"]
+                api_base = config.get("api_base", "https://generativelanguage.googleapis.com")
+                api_version = config.get("api_version", "v1beta")
+
+                # 转换消息格式为 Gemini 格式
+                gemini_contents = []
+                system_content = None
+                for msg in request.messages:
+                    if msg.role == "system":
+                        system_content = msg.content
+                    else:
+                        gemini_contents.append({
+                            "role": "user" if msg.role == "user" else "model",
+                            "parts": [{"text": msg.content}]
+                        })
+
+                gemini_request = {
+                    "contents": gemini_contents,
+                    "generationConfig": {
+                        "temperature": request.temperature,
+                        "topP": request.top_p,
+                        "maxOutputTokens": request.max_tokens or 8192,
+                    }
+                }
+
+                if system_content:
+                    gemini_request["systemInstruction"] = {"parts": [{"text": system_content}]}
+
+                response = await client.post(
+                    f"{api_base}/{api_version}/models/{upstream_model}:generateContent?key={api_key}",
+                    headers={"Content-Type": "application/json"},
+                    json=gemini_request,
+                )
+                response.raise_for_status()
+                gemini_data = response.json()
+
+                # 转换 Gemini 响应为 OpenAI 格式
+                content = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
+                finish_reason = gemini_data["candidates"][0].get("finishReason", "STOP")
+                if finish_reason == "STOP":
+                    finish_reason = "stop"
+                elif finish_reason == "MAX_TOKENS":
+                    finish_reason = "length"
+
+                usage = gemini_data.get("usageMetadata", {})
+                prompt_tokens = usage.get("promptTokenCount", input_tokens)
+                completion_tokens = usage.get("candidatesTokenCount", count_tokens(content))
+
+                upstream_data = {
+                    "choices": [{
+                        "message": {"role": "assistant", "content": content},
+                        "finish_reason": finish_reason
+                    }],
+                    "usage": {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens
+                    }
+                }
+
             else:
                 # 其他供应商简化处理
                 raise UpstreamError(f"暂不支持渠道类型: {channel.type}")

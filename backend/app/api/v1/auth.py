@@ -29,7 +29,50 @@ from app.schemas import (
 router = APIRouter()
 
 
-@router.post("/login", response_model=ResponseModel[LoginResponse])
+@router.post(
+    "/login",
+    response_model=ResponseModel[LoginResponse],
+    summary="用户登录",
+    description="使用邮箱和密码进行认证，返回JWT访问令牌",
+    responses={
+        200: {
+            "description": "登录成功",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 200,
+                        "message": "登录成功",
+                        "data": {
+                            "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                            "token_type": "bearer",
+                            "expires_in": 604800,
+                            "user": {
+                                "id": 1,
+                                "username": "admin",
+                                "email": "admin@example.com",
+                                "role": "admin",
+                                "status": "active",
+                                "created_at": "2024-01-01T00:00:00",
+                            },
+                        },
+                    }
+                }
+            },
+        },
+        401: {
+            "description": "认证失败",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 401,
+                        "message": "邮箱或密码错误",
+                        "data": None,
+                    }
+                }
+            },
+        },
+    },
+)
 async def login(
     request: LoginRequest,
     db: AsyncSession = Depends(get_db),
@@ -87,22 +130,61 @@ async def login(
     )
 
 
-@router.post("/register", response_model=ResponseModel[User], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=ResponseModel[User],
+    status_code=status.HTTP_201_CREATED,
+    summary="用户注册",
+    description="创建新用户账户",
+    responses={
+        201: {
+            "description": "注册成功",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 201,
+                        "message": "注册成功",
+                        "data": {
+                            "id": 1,
+                            "username": "johndoe",
+                            "email": "john@example.com",
+                            "role": "user",
+                            "status": "active",
+                            "created_at": "2024-01-01T00:00:00",
+                        },
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "验证错误",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 400,
+                        "message": "该邮箱已被注册",
+                        "data": None,
+                    }
+                }
+            },
+        },
+    },
+)
 async def register(
     request: RegisterRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """用户注册.
-    
+
     创建新用户账户
-    
+
     Args:
         request: 注册请求
         db: 数据库会话
-        
+
     Returns:
         新创建的用户信息
-        
+
     Raises:
         ValidationError: 邮箱或用户名已存在
     """

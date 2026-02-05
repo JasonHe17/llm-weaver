@@ -31,25 +31,64 @@ from app.schemas import (
 router = APIRouter()
 
 
-@router.get("", response_model=ResponseModel[ChannelListResponse])
+@router.get(
+    "",
+    response_model=ResponseModel[ChannelListResponse],
+    summary="获取渠道列表",
+    description="获取渠道列表。普通用户只能看到自己的渠道，管理员可以看到所有渠道。",
+    responses={
+        200: {
+            "description": "渠道列表",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 200,
+                        "message": "success",
+                        "data": {
+                            "items": [
+                                {
+                                    "id": 1,
+                                    "name": "OpenAI Production",
+                                    "type": "openai",
+                                    "status": "active",
+                                    "weight": 100,
+                                    "priority": 1,
+                                    "models": [
+                                        {"model_id": "gpt-4", "mapped_model": "gpt-4"}
+                                    ],
+                                    "is_system": False,
+                                    "created_at": "2024-01-01T00:00:00"
+                                }
+                            ],
+                            "total": 1,
+                            "page": 1,
+                            "page_size": 20,
+                            "total_pages": 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
 async def list_channels(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    type: Optional[str] = Query(None, description="渠道类型筛选"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    type: Optional[str] = Query(None, description="渠道类型筛选 (openai/anthropic/azure/gemini)"),
     current_user: UserModel = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """获取渠道列表.
-    
+
     普通用户只能看到自己的渠道，管理员可以看到所有渠道
-    
+
     Args:
         page: 页码
         page_size: 每页数量
         type: 渠道类型筛选
         current_user: 当前用户
         db: 数据库会话
-        
+
     Returns:
         渠道列表（分页）
     """
@@ -368,7 +407,7 @@ async def test_channel(
             # 测试Anthropic连接
             api_base = config.get("api_base", "https://api.anthropic.com")
             api_key = config.get("api_key")
-            
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
                     f"{api_base}/v1/models",
@@ -378,7 +417,19 @@ async def test_channel(
                     },
                 )
                 response.raise_for_status()
-        
+
+        elif channel_type == "gemini":
+            # 测试Gemini连接
+            api_key = config.get("api_key")
+            api_base = config.get("api_base", "https://generativelanguage.googleapis.com")
+            api_version = config.get("api_version", "v1beta")
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    f"{api_base}/{api_version}/models?key={api_key}",
+                )
+                response.raise_for_status()
+
         else:
             # 其他类型简单返回成功
             pass
