@@ -2,91 +2,136 @@
 
 ## 版本规划
 
-### v1.0.0 - MVP (预计 4-6 周)
+### v1.0.0 - MVP (已完成 ✅)
 
 **目标**: 提供基础的API中转功能，支持主流供应商
 
 #### 核心功能
 - [x] 基础项目架构搭建
-- [ ] OpenAI兼容接口 (/v1/chat/completions)
-- [ ] 基础管理后台 (Vue3)
-- [ ] 用户认证 (JWT)
-- [ ] API Key管理
-- [ ] 基础渠道管理
-- [ ] 请求日志记录
-- [ ] 供应商支持:
-  - [ ] OpenAI
-  - [ ] Anthropic
-  - [ ] Azure OpenAI
-  - [ ] Google Gemini
-- [ ] Docker部署支持
+- [x] OpenAI兼容接口 (/v1/chat/completions)
+  - [x] 非流式响应
+  - [x] 流式响应 (SSE)
+  - [x] 多供应商适配 (OpenAI, Anthropic, Azure, Gemini)
+- [x] 基础管理后台 (Vue3 + TypeScript + Element Plus)
+  - [x] 登录页面
+  - [x] 仪表盘 (图表统计)
+  - [x] API Key管理页面
+  - [x] 渠道管理页面
+  - [x] 用量统计页面
+  - [x] 日志查看页面
+  - [x] 模型管理页面
+  - [x] 系统设置页面
+- [x] 用户认证 (JWT)
+  - [x] 登录/注册
+  - [x] Token刷新
+  - [x] 登出
+  - [x] 修改密码
+- [x] API Key管理
+  - [x] 创建/查询/更新/删除
+  - [x] 重新生成
+  - [x] 撤销
+  - [x] 预算限制
+  - [x] 速率限制
+  - [x] IP白名单
+  - [x] 模型访问控制
+- [x] 基础渠道管理
+  - [x] 创建/查询/更新/删除
+  - [x] 渠道测试
+  - [x] 模型映射配置
+- [x] 请求日志记录
+  - [x] 请求/响应记录
+  - [x] Token用量记录
+  - [x] 费用计算记录
+  - [x] 错误日志记录
+- [x] 供应商支持:
+  - [x] OpenAI
+  - [x] Anthropic
+  - [x] Azure OpenAI
+  - [x] Google Gemini
+- [x] Docker部署支持
+  - [x] Dockerfile
+  - [x] docker-compose.yml
+  - [x] Nginx配置
 
 #### 技术债务
-- [ ] 完善错误处理
+- [x] 完善错误处理 (自定义异常体系)
 - [ ] 基础单元测试覆盖
-- [ ] API文档 (Swagger)
+- [x] API文档 (Swagger/OpenAPI自动生成)
 
 ---
 
-### v1.1.0 - 智能路由与计费 (预计 3-4 周)
+### v1.1.0 - 智能路由与计费 (已完成 ✅)
 
 **目标**: 提供智能路由和基础计费功能
 
 #### 新功能
-- [ ] 智能路由引擎
-  - [ ] 基于权重的负载均衡
-  - [ ] 健康检查与故障转移
-  - [ ] 路由策略配置
-- [ ] 费用统计系统
-  - [ ] Token用量统计
-  - [ ] 费用计算
-  - [ ] 用量报表
-- [ ] 预算控制
-  - [ ] API Key级别预算限制
-  - [ ] 预警通知
-- [ ] 高级日志
-  - [ ] 日志搜索与过滤
-  - [ ] 日志导出
+- [x] 智能路由引擎 (LoadBalancerService)
+  - [x] 基于权重的负载均衡 (weighted random)
+  - [x] 简单随机选择 (random)
+  - [x] 最低成本优先 (lowest_cost)
+  - [x] 最高性能优先 (performance)
+  - [x] 健康检查与故障转移
+  - [x] 路由策略配置API
+  - [x] 缓存感知路由
+- [x] 费用统计系统
+  - [x] Token用量统计 (输入/输出)
+  - [x] 实时费用计算
+  - [x] 按模型统计
+  - [x] 按天统计
+  - [x] 用量报表API
+- [x] 预算控制
+  - [x] API Key级别预算限制
+  - [x] 实时预算检查
+  - [ ] 预警通知 (待实现)
+- [x] 高级日志
+  - [x] 日志搜索与过滤
+  - [x] 按模型/状态筛选
+  - [x] 分页查询
+  - [ ] 日志导出 (待实现)
+- [x] 性能监控
+  - [x] 渠道延迟分析 (P50/P95/P99)
+  - [x] 成功率统计
+  - [x] 缓存命中率分析
 - [ ] 新增供应商:
   - [ ] Mistral AI
   - [ ] Cohere
   - [ ] 智谱AI
 
 #### 优化
-- [ ] 性能优化 (连接池、缓存)
-- [ ] 前端UI优化
+- [x] 性能优化 (异步HTTP连接池)
+- [x] 前端UI优化 (ECharts图表)
 - [ ] 更多测试覆盖
 
 ---
 
-### v1.2.0 - 企业级功能 (预计 4-5 周)
+### v1.2.0 - 企业级功能 (进行中 🚧)
 
 **目标**: 提供企业级管理和监控能力
 
 #### 新功能
 - [ ] 团队/组织功能
   - [ ] 多用户管理
-  - [ ] 角色权限 (RBAC)
+  - [ ] 角色权限 (RBAC) - 基础框架已具备
   - [ ] 团队资源隔离
-- [ ] 监控告警
-  - [ ] Prometheus集成
-  - [ ] Grafana仪表板
+- [x] 监控告警
+  - [x] Prometheus集成 (配置文件已准备)
+  - [x] Grafana仪表板 (配置已准备)
   - [ ] 告警规则配置
-- [ ] 高级安全
-  - [ ] IP白名单
+- [x] 高级安全
+  - [x] IP白名单 (API Key级别已实现)
   - [ ] 请求签名
-  - [ ] 审计日志
+  - [x] 审计日志 (请求日志已实现)
 - [ ] 新增供应商:
   - [ ] 文心一言
   - [ ] 通义千问
   - [ ] Ollama (本地模型)
   - [ ] vLLM (本地模型)
-- [ ] 模型映射与转换
+- [x] 模型映射与转换 (渠道级别已实现)
 
 #### 优化
 - [ ] 数据库查询优化
-- [ ] 缓存策略优化
-- [ ] 文档完善
+- [x] 缓存策略优化 (Redis缓存结构已设计)
+- [x] 文档完善
 
 ---
 
@@ -153,10 +198,13 @@
 
 | 项目 | 优先级 | 计划版本 | 状态 |
 |------|--------|----------|------|
-| 完善单元测试 | 高 | v1.0.0 | 进行中 |
-| API文档完善 | 高 | v1.0.0 | 待开始 |
-| 错误码统一 | 中 | v1.1.0 | 待开始 |
-| 数据库索引优化 | 中 | v1.1.0 | 待开始 |
+| 完善单元测试 | 高 | v1.2.0 | 待开始 |
+| API文档完善 | 高 | v1.0.0 | 已完成 ✅ |
+| 错误码统一 | 中 | v1.0.0 | 已完成 ✅ |
+| 数据库索引优化 | 中 | v1.1.0 | 已完成 ✅ |
+| 性能测试与优化 | 中 | v1.2.0 | 待开始 |
+| 安全审计 | 高 | v1.2.0 | 待开始 |
+| 集成测试覆盖 | 中 | v1.2.0 | 待开始 |
 
 ---
 
@@ -166,44 +214,76 @@
 gantt
     title LLM Weaver 开发路线图
     dateFormat  YYYY-MM-DD
-    section v1.0.0 MVP
+    section v1.0.0 MVP (已完成)
     项目架构搭建      :done, arch, 2024-01-01, 1w
-    基础API开发       :active, api, after arch, 2w
-    管理后台开发      :ui, after arch, 2w
-    供应商适配        :providers, after api, 1w
-    测试与优化        :test, after ui, 1w
+    基础API开发       :done, api, after arch, 2w
+    管理后台开发      :done, ui, after arch, 2w
+    供应商适配        :done, providers, after api, 1w
+    测试与优化        :done, test, after ui, 1w
     
-    section v1.1.0
-    智能路由引擎      :routing, after test, 2w
-    计费系统          :billing, after test, 2w
-    日志系统          :logging, after routing, 1w
+    section v1.1.0 智能路由 (已完成)
+    智能路由引擎      :done, routing, after test, 2w
+    计费系统          :done, billing, after test, 2w
+    性能监控          :done, perf, after routing, 1w
+    日志系统增强      :done, logging, after routing, 1w
     
-    section v1.2.0
-    团队功能          :team, after billing, 2w
-    监控告警          :monitor, after billing, 2w
-    安全加固          :security, after team, 1w
+    section v1.2.0 企业级功能 (进行中)
+    团队功能          :active, team, after perf, 2w
+    监控告警          :active, monitor, after perf, 2w
+    安全加固          :pending, security, after team, 1w
     
-    section v2.0.0
-    多租户架构        :mt, after security, 3w
-    SSO集成           :sso, after security, 2w
-    高级分析          :analytics, after mt, 2w
+    section v2.0.0 多租户SaaS (规划中)
+    多租户架构        :pending, mt, after security, 3w
+    SSO集成           :pending, sso, after security, 2w
+    高级分析          :pending, analytics, after mt, 2w
 ```
+
+---
+
+## 当前状态摘要
+
+### 已实现功能 (v1.0.0 + v1.1.0)
+
+#### 核心功能 ✅
+- **用户认证**: JWT登录/注册/密码管理
+- **API Key管理**: 完整的生命周期管理 + 预算控制
+- **渠道管理**: 多供应商配置 + 健康检查
+- **智能路由**: 4种负载均衡策略 + 故障转移
+- **OpenAI兼容接口**: 完整的Chat Completions API
+- **多供应商支持**: OpenAI, Anthropic, Azure, Gemini
+- **用量统计**: 实时统计 + 可视化报表
+- **请求日志**: 详细记录 + 查询筛选
+- **管理后台**: Vue3 SPA + ECharts图表
+
+#### 技术特性 ✅
+- 异步架构 (FastAPI + SQLAlchemy 2.0)
+- 分层设计 (API/Service/Data Access)
+- 自定义异常体系
+- 自动API文档 (Swagger/OpenAPI)
+- Docker容器化部署
+- 性能监控 (P50/P95/P99延迟分析)
+
+### 进行中功能 (v1.2.0) 🚧
+- 团队/组织功能
+- 高级监控告警
+- 更多供应商适配
+- 安全审计功能
 
 ---
 
 ## 长期愿景
 
-### 2024 Q1-Q2: 基础平台
+### 2024 Q1-Q2: 基础平台 ✅ (已完成)
 - 稳定的基础功能
 - 主流供应商全覆盖
 - 企业级安全与监控
 
-### 2024 Q3-Q4: 企业级功能
+### 2024 Q3-Q4: 企业级功能 🚧 (进行中)
 - 多租户SaaS平台
 - 高级分析与优化
 - 开发者生态
 
-### 2025: 智能化平台
+### 2025: 智能化平台 📋 (规划中)
 - AI驱动的路由优化
 - 自动成本优化
 - 智能缓存策略
