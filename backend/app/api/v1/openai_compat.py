@@ -150,6 +150,21 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     }
     
     # 获取模型价格
+    pricing = {
+        # OpenAI
+        "gpt-4": {"input": 0.03, "output": 0.06},
+        "gpt-4-turbo": {"input": 0.01, "output": 0.03},
+        "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
+        "gpt-3.5-turbo-16k": {"input": 0.001, "output": 0.002},
+        # Anthropic
+        "claude-3-opus": {"input": 0.015, "output": 0.075},
+        "claude-3-sonnet": {"input": 0.003, "output": 0.015},
+        "claude-3-haiku": {"input": 0.00025, "output": 0.00125},
+        "claude-3-opus-20240229": {"input": 0.015, "output": 0.075},
+        "claude-3-sonnet-20240229": {"input": 0.003, "output": 0.015},
+        "claude-3-haiku-20240307": {"input": 0.00025, "output": 0.00125},
+    }
+    
     model_pricing = pricing.get(model, pricing.get("gpt-3.5-turbo"))
     
     input_cost = (input_tokens / 1000) * model_pricing["input"]
@@ -432,6 +447,65 @@ async def non_stream_chat_completion(
                 response.raise_for_status()
                 upstream_data = response.json()
             
+            elif channel.type == "anthropic":
+                api_base = config.get("api_base", "https://api.anthropic.com")
+                
+                # 转换消息格式为Anthropic格式
+                anthropic_messages = []
+                system_content = None
+                for msg in request.messages:
+                    if msg.role == "system":
+                        system_content = msg.content
+                    else:
+                        anthropic_messages.append({
+                            "role": msg.role,
+                            "content": msg.content
+                        })
+                
+                anthropic_request = {
+                    "model": upstream_model,
+                    "messages": anthropic_messages,
+                    "max_tokens": request.max_tokens or 4096,
+                    "temperature": request.temperature,
+                    "top_p": request.top_p,
+                }
+                
+                if system_content:
+                    anthropic_request["system"] = system_content
+                
+                response = await client.post(
+                    f"{api_base}/v1/messages",
+                    headers={
+                        "x-api-key": config["api_key"],
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json=anthropic_request,
+                )
+                response.raise_for_status()
+                upstream_data = response.json()
+                
+                # 转换Anthropic响应为OpenAI格式
+                content = upstream_data["content"][0]["text"]
+                finish_reason = upstream_data["stop_reason"]
+                if finish_reason == "max_tokens":
+                    finish_reason = "length"
+                elif finish_reason == "stop_sequence":
+                    finish_reason = "stop"
+                
+                # 构建OpenAI格式的响应
+                upstream_data = {
+                    "choices": [{
+                        "message": {"role": "assistant", "content": content},
+                        "finish_reason": finish_reason
+                    }],
+                    "usage": {
+                        "prompt_tokens": upstream_data["usage"]["input_tokens"],
+                        "completion_tokens": upstream_data["usage"]["output_tokens"],
+                        "total_tokens": upstream_data["usage"]["input_tokens"] + upstream_data["usage"]["output_tokens"]
+                    }
+                }
+            
             else:
                 # 其他供应商简化处理
                 raise UpstreamError(f"暂不支持渠道类型: {channel.type}")
@@ -498,6 +572,8 @@ async def non_stream_chat_completion(
             error_data = e.response.json()
             if "error" in error_data:
                 error_msg = error_data["error"].get("message", error_msg)
+            elif "message" in error_data:
+                error_msg = error_data["message"]
         except:
             pass
         

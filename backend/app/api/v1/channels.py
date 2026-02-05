@@ -364,6 +364,21 @@ async def test_channel(
                 )
                 response.raise_for_status()
         
+        elif channel_type == "anthropic":
+            # 测试Anthropic连接
+            api_base = config.get("api_base", "https://api.anthropic.com")
+            api_key = config.get("api_key")
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    f"{api_base}/v1/models",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01"
+                    },
+                )
+                response.raise_for_status()
+        
         else:
             # 其他类型简单返回成功
             pass
