@@ -7,7 +7,7 @@ import json
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Depends, Header, Request
@@ -25,6 +25,7 @@ from app.db.models.channel import Channel
 from app.db.models.model_def import ModelDef
 from app.db.models.model_mapping import ModelMapping
 from app.db.models.request_log import RequestLog
+from app.services.load_balancer import load_balancer
 
 router = APIRouter()
 
@@ -180,52 +181,44 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 async def select_channel_for_model(
     model: str,
     db: AsyncSession,
-) -> Optional[Channel]:
+    user_id: Optional[int] = None,
+    strategy: Optional[str] = None,
+) -> Optional[Tuple[Channel, ModelMapping]]:
     """为指定模型选择合适的渠道.
     
-    简单的负载均衡策略：按权重随机选择
+    支持多种负载均衡策略：
+    - random: 简单随机选择
+    - weighted: 加权随机选择（默认）
+    - lowest_cost: 最低成本优先
+    - performance: 最高性能优先
     
     Args:
         model: 模型ID
         db: 数据库会话
+        user_id: 用户ID（用于缓存路由）
+        strategy: 负载均衡策略（可选，None则使用默认策略）
         
     Returns:
-        选中的渠道
+        选中的渠道和映射
     """
-    # 查找支持该模型的渠道
-    result = await db.execute(
-        select(Channel, ModelMapping)
-        .join(ModelMapping, Channel.id == ModelMapping.channel_id)
-        .where(
-            Channel.status == "active",
-            ModelMapping.model_id == model,
-        )
+    from app.services.load_balancer import LoadBalanceStrategy
+    
+    # 解析策略
+    strategy_enum = None
+    if strategy:
+        try:
+            strategy_enum = LoadBalanceStrategy(strategy.lower())
+        except ValueError:
+            logger.warning(f"Invalid strategy: {strategy}, using default")
+    
+    # 使用智能负载均衡服务选择最优渠道
+    return await load_balancer.select_optimal_channel(
+        model=model,
+        user_id=user_id or 0,
+        db=db,
+        strategy=strategy_enum,
+        prefer_cache=None,  # 使用全局配置
     )
-    
-    channels = []
-    for row in result.all():
-        channel = row.Channel
-        mapping = row.ModelMapping
-        channels.append((channel, mapping))
-    
-    if not channels:
-        return None, None
-    
-    # 简单策略：选择权重最高的
-    # 实际应用中可以更复杂（健康检查、延迟测试等）
-    import random
-    
-    # 按权重加权随机选择
-    total_weight = sum(ch.weight for ch, _ in channels)
-    r = random.uniform(0, total_weight)
-    
-    cumulative = 0
-    for channel, mapping in channels:
-        cumulative += channel.weight
-        if r <= cumulative:
-            return channel, mapping
-    
-    return channels[0]
 
 
 async def log_request(
@@ -317,6 +310,7 @@ async def list_models(
 @router.post("/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
+    x_lb_strategy: Optional[str] = Header(None, description="负载均衡策略 (random/weighted/lowest_cost/performance)"),
     api_key: APIKey = Depends(get_current_api_key),
     db: AsyncSession = Depends(get_db),
 ):
@@ -338,8 +332,11 @@ async def chat_completions(
     if api_key.allowed_models and request.model not in api_key.allowed_models:
         raise ValidationError(f"API Key无权访问模型: {request.model}")
     
-    # 选择渠道
-    channel, mapping = await select_channel_for_model(request.model, db)
+    # 选择渠道（使用智能负载均衡，传递用户ID和策略）
+    # 支持通过请求头 X-LB-Strategy 指定策略
+    channel, mapping = await select_channel_for_model(
+        request.model, db, user_id=api_key.user_id, strategy=x_lb_strategy
+    )
     
     if not channel:
         raise NotFoundError(f"找不到支持模型 {request.model} 的渠道")
@@ -611,6 +608,17 @@ async def non_stream_chat_completion(
         api_key.budget_used = float(api_key.budget_used) + cost
         await db.commit()
         
+        # 记录请求结果用于负载均衡优化（启发式检测缓存：延迟低于50ms）
+        has_cache = latency_ms < 50
+        load_balancer.record_request_result(
+            channel_id=channel.id,
+            model=request.model,
+            user_id=api_key.user_id,
+            success=True,
+            latency_ms=latency_ms,
+            has_cache=has_cache,
+        )
+        
         # 构建响应
         return ChatCompletionResponse(
             id=f"chatcmpl-{uuid.uuid4().hex[:10]}",
@@ -658,6 +666,16 @@ async def non_stream_chat_completion(
             error_message=error_msg,
         )
         
+        # 记录失败结果用于负载均衡优化
+        load_balancer.record_request_result(
+            channel_id=channel.id,
+            model=request.model,
+            user_id=api_key.user_id,
+            success=False,
+            latency_ms=latency_ms,
+            has_cache=False,
+        )
+        
         raise UpstreamError(error_msg)
     
     except Exception as e:
@@ -676,6 +694,16 @@ async def non_stream_chat_completion(
             cost=0,
             latency_ms=latency_ms,
             error_message=str(e),
+        )
+        
+        # 记录失败结果用于负载均衡优化
+        load_balancer.record_request_result(
+            channel_id=channel.id,
+            model=request.model,
+            user_id=api_key.user_id,
+            success=False,
+            latency_ms=latency_ms,
+            has_cache=False,
         )
         
         logger.error(f"Chat completion error: {e}")

@@ -27,6 +27,7 @@ from app.schemas import (
     ChannelUpdate,
     ResponseModel,
 )
+from app.services.load_balancer import load_balancer, ChannelHealthStatus, ChannelPerformanceMetrics, LoadBalanceStrategy
 
 router = APIRouter()
 
@@ -470,3 +471,358 @@ async def test_channel(
                 tested_at=datetime.now(timezone.utc),
             ),
         )
+
+
+@router.post("/{channel_id}/health-check", response_model=ResponseModel[dict])
+async def check_channel_health(
+    channel_id: int,
+    current_user: UserModel = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """检查单个渠道健康状态（智能负载均衡）.
+    
+    使用负载均衡服务的健康检查机制，比简单测试更全面的健康评估
+    
+    Args:
+        channel_id: 渠道ID
+        current_user: 当前用户
+        db: 数据库会话
+        
+    Returns:
+        健康检查结果
+    """
+    result = await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )
+    channel = result.scalar_one_or_none()
+    
+    if not channel:
+        raise NotFoundError("渠道不存在")
+    
+    # 检查权限
+    from app.core.exceptions import AuthorizationError
+    if current_user.role != "admin" and channel.user_id != current_user.id:
+        raise AuthorizationError("无权检查此渠道")
+    
+    # 使用负载均衡服务进行健康检查
+    health_status = await load_balancer.check_channel_health(channel, db)
+    
+    return ResponseModel(
+        code=200,
+        message="健康检查完成",
+        data={
+            "channel_id": health_status.channel_id,
+            "is_healthy": health_status.is_healthy,
+            "check_latency_ms": health_status.check_latency_ms,
+            "consecutive_failures": health_status.consecutive_failures,
+            "message": health_status.message,
+            "checked_at": health_status.last_check_time.isoformat(),
+        },
+    )
+
+
+@router.get("/{channel_id}/performance", response_model=ResponseModel[dict])
+async def get_channel_performance(
+    channel_id: int,
+    model: Optional[str] = Query(None, description="模型名称（可选）"),
+    window_minutes: int = Query(30, ge=5, le=1440, description="分析窗口（分钟，默认30分钟）"),
+    current_user: UserModel = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取渠道性能指标（基于日志分析）.
+    
+    分析指定渠道在近期的性能表现，包括延迟分布、成功率、缓存命中率等
+    
+    Args:
+        channel_id: 渠道ID
+        model: 模型名称（可选，不指定则分析所有模型）
+        window_minutes: 分析窗口（分钟）
+        current_user: 当前用户
+        db: 数据库会话
+        
+    Returns:
+        性能指标数据
+    """
+    result = await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )
+    channel = result.scalar_one_or_none()
+    
+    if not channel:
+        raise NotFoundError("渠道不存在")
+    
+    # 检查权限
+    from app.core.exceptions import AuthorizationError
+    if current_user.role != "admin" and channel.user_id != current_user.id:
+        raise AuthorizationError("无权查看此渠道")
+    
+    # 如果指定了模型，只分析该模型
+    if model:
+        metrics = await load_balancer.analyze_channel_performance(
+            channel_id=channel_id,
+            model=model,
+            db=db,
+            window_minutes=window_minutes,
+        )
+        
+        return ResponseModel(
+            code=200,
+            message="性能分析完成",
+            data={
+                "channel_id": metrics.channel_id,
+                "model": metrics.model,
+                "window_minutes": window_minutes,
+                "avg_latency_ms": round(metrics.avg_latency_ms, 2),
+                "p50_latency_ms": round(metrics.p50_latency_ms, 2),
+                "p95_latency_ms": round(metrics.p95_latency_ms, 2),
+                "p99_latency_ms": round(metrics.p99_latency_ms, 2),
+                "success_rate": round(metrics.success_rate * 100, 2),
+                "total_requests": metrics.total_requests,
+                "error_count": metrics.error_count,
+                "cache_hit_rate": round(metrics.cache_hit_rate * 100, 2),
+                "cached_requests": metrics.cached_requests,
+            },
+        )
+    else:
+        # 获取该渠道支持的所有模型
+        mappings_result = await db.execute(
+            select(ModelMapping).where(ModelMapping.channel_id == channel_id)
+        )
+        mappings = mappings_result.scalars().all()
+        model_ids = [m.model_id for m in mappings]
+        
+        # 分析所有模型
+        all_metrics = []
+        for model_id in model_ids:
+            metrics = await load_balancer.analyze_channel_performance(
+                channel_id=channel_id,
+                model=model_id,
+                db=db,
+                window_minutes=window_minutes,
+            )
+            all_metrics.append({
+                "model": metrics.model,
+                "avg_latency_ms": round(metrics.avg_latency_ms, 2),
+                "p95_latency_ms": round(metrics.p95_latency_ms, 2),
+                "success_rate": round(metrics.success_rate * 100, 2),
+                "total_requests": metrics.total_requests,
+                "cache_hit_rate": round(metrics.cache_hit_rate * 100, 2),
+            })
+        
+        return ResponseModel(
+            code=200,
+            message="性能分析完成",
+            data={
+                "channel_id": channel_id,
+                "window_minutes": window_minutes,
+                "models_analyzed": len(all_metrics),
+                "models": all_metrics,
+            },
+        )
+
+
+@router.post("/health-check/all", response_model=ResponseModel[dict])
+async def check_all_channels_health(
+    current_user: UserModel = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """检查所有活跃渠道的健康状态（仅管理员）.
+    
+    对所有活跃渠道执行健康检查，用于系统监控和维护
+    
+    Args:
+        current_user: 当前用户（必须是管理员）
+        db: 数据库会话
+        
+    Returns:
+        所有渠道的健康状态汇总
+    """
+    results = await load_balancer.check_all_channels_health(db)
+    
+    healthy_count = sum(1 for r in results.values() if r.is_healthy)
+    unhealthy_count = len(results) - healthy_count
+    
+    return ResponseModel(
+        code=200,
+        message="健康检查完成",
+        data={
+            "total_channels": len(results),
+            "healthy": healthy_count,
+            "unhealthy": unhealthy_count,
+            "channels": [
+                {
+                    "channel_id": r.channel_id,
+                    "is_healthy": r.is_healthy,
+                    "consecutive_failures": r.consecutive_failures,
+                    "check_latency_ms": r.check_latency_ms,
+                    "message": r.message,
+                    "checked_at": r.last_check_time.isoformat(),
+                }
+                for r in results.values()
+            ],
+        },
+    )
+
+
+@router.get("/load-balancer/status", response_model=ResponseModel[dict])
+async def get_load_balancer_status(
+    current_user: UserModel = Depends(get_current_admin_user),
+):
+    """获取负载均衡器状态（仅管理员）.
+    
+    查看负载均衡服务的内部状态，包括健康状态缓存、性能指标缓存、缓存路由等
+    
+    Args:
+        current_user: 当前用户（必须是管理员）
+        
+    Returns:
+        负载均衡器状态
+    """
+    return ResponseModel(
+        code=200,
+        message="success",
+        data={
+            "health_status_cache": {
+                "count": len(load_balancer._health_status),
+                "channels": [
+                    {
+                        "channel_id": s.channel_id,
+                        "is_healthy": s.is_healthy,
+                        "last_check": s.last_check_time.isoformat() if s.last_check_time else None,
+                    }
+                    for s in load_balancer._health_status.values()
+                ],
+            },
+            "performance_metrics_cache": {
+                "count": len(load_balancer._performance_metrics),
+            },
+            "cache_routing": {
+                "count": len(load_balancer._cache_routing),
+                "routes": [
+                    {
+                        "user_id": key[0],
+                        "model": key[1],
+                        "channel_id": info.channel_id,
+                        "consecutive_hits": info.consecutive_hits,
+                        "last_used": info.last_used_at.isoformat() if info.last_used_at else None,
+                    }
+                    for key, info in load_balancer._cache_routing.items()
+                ],
+            },
+            "consecutive_failures": dict(load_balancer._consecutive_failures),
+            "config": {
+                "metrics_window_minutes": load_balancer.metrics_window_minutes,
+                "cache_routing_ttl_minutes": load_balancer.cache_routing_ttl_minutes,
+                "max_consecutive_failures": load_balancer.max_consecutive_failures,
+                "latency_weight_factor": load_balancer.latency_weight_factor,
+                "default_strategy": load_balancer.default_strategy.value,
+                "enable_cache_tracking": load_balancer.enable_cache_tracking,
+            },
+        },
+    )
+
+
+@router.post("/load-balancer/strategy", response_model=ResponseModel[dict])
+async def set_load_balancer_strategy(
+    strategy: str = Query(..., description="负载均衡策略 (random/weighted/lowest_cost/performance)"),
+    current_user: UserModel = Depends(get_current_admin_user),
+):
+    """设置负载均衡默认策略（仅管理员）.
+    
+    可选策略：
+    - random: 简单随机选择，完全随机
+    - weighted: 加权随机选择（默认）
+    - lowest_cost: 最低成本优先
+    - performance: 最高性能优先
+    
+    Args:
+        strategy: 策略名称
+        current_user: 当前用户（必须是管理员）
+        
+    Returns:
+        设置结果
+    """
+    try:
+        strategy_enum = LoadBalanceStrategy(strategy.lower())
+    except ValueError:
+        valid_strategies = [s.value for s in LoadBalanceStrategy]
+        raise ValidationError(f"无效的策略，可选值: {', '.join(valid_strategies)}")
+    
+    load_balancer.set_default_strategy(strategy_enum)
+    
+    return ResponseModel(
+        code=200,
+        message="策略设置成功",
+        data={
+            "strategy": strategy_enum.value,
+            "description": {
+                "random": "简单随机选择，完全随机",
+                "weighted": "加权随机选择，基于配置的权重",
+                "lowest_cost": "最低成本优先，考虑渠道成本和成功率",
+                "performance": "最高性能优先，基于延迟和成功率",
+            }.get(strategy_enum.value),
+        },
+    )
+
+
+@router.post("/load-balancer/cache-tracking", response_model=ResponseModel[dict])
+async def set_cache_tracking(
+    enabled: bool = Query(..., description="是否启用缓存追踪"),
+    current_user: UserModel = Depends(get_current_admin_user),
+):
+    """设置缓存追踪开关（仅管理员）.
+    
+    缓存追踪功能会在检测到缓存命中时，优先将后续请求路由到同一渠道，
+    以最大化缓存利用率。
+    
+    Args:
+        enabled: 是否启用
+        current_user: 当前用户（必须是管理员）
+        
+    Returns:
+        设置结果
+    """
+    load_balancer.set_cache_tracking(enabled)
+    
+    return ResponseModel(
+        code=200,
+        message=f"缓存追踪已{'启用' if enabled else '禁用'}",
+        data={
+            "enabled": enabled,
+            "cache_routing_ttl_minutes": load_balancer.cache_routing_ttl_minutes,
+            "current_routes_count": len(load_balancer._cache_routing),
+        },
+    )
+
+
+@router.get("/load-balancer/strategies", response_model=ResponseModel[list])
+async def list_load_balancer_strategies(
+    current_user: UserModel = Depends(get_current_active_user),
+):
+    """获取所有可用的负载均衡策略列表.
+    
+    Args:
+        current_user: 当前用户
+        
+    Returns:
+        策略列表及说明
+    """
+    strategies = [
+        {
+            "name": s.value,
+            "description": {
+                "random": "简单随机选择，完全随机，不考虑权重、性能或成本",
+                "weighted": "加权随机选择（默认），基于渠道配置的权重进行加权随机",
+                "lowest_cost": "最低成本优先，选择成本最低的渠道，考虑成功率和成本",
+                "performance": "最高性能优先，基于P95延迟和成功率综合评分",
+            }[s.value],
+            "is_default": s == load_balancer.default_strategy,
+        }
+        for s in LoadBalanceStrategy
+    ]
+    
+    return ResponseModel(
+        code=200,
+        message="success",
+        data=strategies,
+    )

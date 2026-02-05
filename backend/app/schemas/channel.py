@@ -141,6 +141,18 @@ class ChannelTestResponse(BaseModel):
     tested_at: datetime = Field(..., description="测试时间")
 
 
+class ChannelCostConfig(BaseModel):
+    """渠道成本配置模型.
+    
+    Attributes:
+        input: 输入token成本（每1K tokens，美元）
+        output: 输出token成本（每1K tokens，美元）
+    """
+    
+    input: float = Field(default=0.01, ge=0, description="输入token成本（每1K tokens，美元）")
+    output: float = Field(default=0.03, ge=0, description="输出token成本（每1K tokens，美元）")
+
+
 class ChannelConfig(BaseModel):
     """渠道配置模型.
     
@@ -152,6 +164,8 @@ class ChannelConfig(BaseModel):
         timeout: 超时时间（秒）
         max_retries: 最大重试次数
         custom_headers: 自定义请求头
+        default_costs: 默认成本配置（用于最低成本策略）
+        model_costs: 模型特定成本配置
     """
     
     api_base: Optional[str] = Field(default=None, description="API基础地址")
@@ -161,3 +175,5 @@ class ChannelConfig(BaseModel):
     timeout: int = Field(default=60, description="超时时间（秒）")
     max_retries: int = Field(default=3, description="最大重试次数")
     custom_headers: Optional[Dict[str, str]] = Field(default=None, description="自定义请求头")
+    default_costs: Optional[ChannelCostConfig] = Field(default=None, description="默认成本配置（用于最低成本策略）")
+    model_costs: Optional[Dict[str, ChannelCostConfig]] = Field(default=None, description="模型特定成本配置，key为模型ID")
